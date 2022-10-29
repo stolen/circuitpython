@@ -132,8 +132,8 @@ STATIC mp_obj_t usb_hid_device_make_new(const mp_obj_type_t *type, size_t n_args
     }
 
     uint8_t report_ids_array[report_ids_count];
-    uint8_t in_report_lengths_array[report_ids_count];
-    uint8_t out_report_lengths_array[report_ids_count];
+    uint16_t in_report_lengths_array[report_ids_count];
+    uint16_t out_report_lengths_array[report_ids_count];
 
     // Validate the ids and lengths are all integers in range.
     for (size_t i = 0; i < report_ids_count; i++) {
@@ -145,13 +145,13 @@ STATIC mp_obj_t usb_hid_device_make_new(const mp_obj_type_t *type, size_t n_args
             MP_OBJ_SMALL_INT_VALUE(mp_obj_subscr(report_ids, i_obj, MP_OBJ_SENTINEL)),
             0, 255, MP_QSTR_report_ids);
 
-        in_report_lengths_array[i] = (uint8_t)mp_arg_validate_int_range(
+        in_report_lengths_array[i] = (uint16_t)mp_arg_validate_int_range(
             MP_OBJ_SMALL_INT_VALUE(mp_obj_subscr(in_report_lengths, i_obj, MP_OBJ_SENTINEL)),
-            0, 255, MP_QSTR_in_report_lengths);
+            0, 1024, MP_QSTR_in_report_lengths);
 
-        out_report_lengths_array[i] = (uint8_t)mp_arg_validate_int_range(
+        out_report_lengths_array[i] = (uint16_t)mp_arg_validate_int_range(
             MP_OBJ_SMALL_INT_VALUE(mp_obj_subscr(out_report_lengths, i_obj, MP_OBJ_SENTINEL)),
-            0, 255, MP_QSTR_out_report_lengths);
+            0, 1024, MP_QSTR_out_report_lengths);
     }
 
     if (report_ids_array[0] == 0 && report_ids_count > 1) {

@@ -187,7 +187,7 @@ uint8_t common_hal_usb_hid_device_validate_report_id(usb_hid_device_obj_t *self,
     return (uint8_t)report_id_arg;
 }
 
-void common_hal_usb_hid_device_construct(usb_hid_device_obj_t *self, mp_obj_t report_descriptor, uint16_t usage_page, uint16_t usage, size_t num_report_ids, uint8_t *report_ids, uint8_t *in_report_lengths, uint8_t *out_report_lengths) {
+void common_hal_usb_hid_device_construct(usb_hid_device_obj_t *self, mp_obj_t report_descriptor, uint16_t usage_page, uint16_t usage, size_t num_report_ids, uint8_t *report_ids, uint16_t *in_report_lengths, uint16_t *out_report_lengths) {
     mp_arg_validate_length_max(
         num_report_ids, CIRCUITPY_USB_HID_MAX_REPORT_IDS_PER_DESCRIPTOR, MP_QSTR_report_ids);
 
@@ -206,8 +206,8 @@ void common_hal_usb_hid_device_construct(usb_hid_device_obj_t *self, mp_obj_t re
     self->usage = usage;
     self->num_report_ids = num_report_ids;
     memcpy(self->report_ids, report_ids, num_report_ids);
-    memcpy(self->in_report_lengths, in_report_lengths, num_report_ids);
-    memcpy(self->out_report_lengths, out_report_lengths, num_report_ids);
+    memcpy(self->in_report_lengths, in_report_lengths, num_report_ids*sizeof(uint16_t));
+    memcpy(self->out_report_lengths, out_report_lengths, num_report_ids*sizeof(uint16_t));
 }
 
 uint16_t common_hal_usb_hid_device_get_usage_page(usb_hid_device_obj_t *self) {
@@ -218,7 +218,7 @@ uint16_t common_hal_usb_hid_device_get_usage(usb_hid_device_obj_t *self) {
     return self->usage;
 }
 
-void common_hal_usb_hid_device_send_report(usb_hid_device_obj_t *self, uint8_t *report, uint8_t len, uint8_t report_id) {
+void common_hal_usb_hid_device_send_report(usb_hid_device_obj_t *self, uint8_t *report, uint16_t len, uint8_t report_id) {
     // report_id and len have already been validated for this device.
     size_t id_idx = get_report_id_idx(self, report_id);
 
