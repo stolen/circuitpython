@@ -197,6 +197,40 @@ STATIC mp_obj_t usb_hid_device_send_report(size_t n_args, const mp_obj_t *pos_ar
 }
 MP_DEFINE_CONST_FUN_OBJ_KW(usb_hid_device_send_report_obj, 1, usb_hid_device_send_report);
 
+//|     def store_report(self, report: ReadableBuffer, report_id: Optional[int] = None) -> None:
+//|         """Store an HID report in a buffer for responding on host requests.
+//|         If the device descriptor specifies zero or one report id's,
+//|         you can supply `None` (the default) as the value of ``report_id``.
+//|         Otherwise you must specify which report id to use when sending the report.
+//|         """
+//|         ...
+STATIC mp_obj_t usb_hid_device_store_report(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    usb_hid_device_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+
+    enum { ARG_report, ARG_report_id };
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_report, MP_ARG_REQUIRED | MP_ARG_OBJ },
+        { MP_QSTR_report_id, MP_ARG_OBJ, {.u_obj = mp_const_none} },
+    };
+
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(args[ARG_report].u_obj, &bufinfo, MP_BUFFER_READ);
+
+    // -1 asks common_hal to determine the report id if possible.
+    mp_int_t report_id_arg = -1;
+    if (args[ARG_report_id].u_obj != mp_const_none) {
+        report_id_arg = mp_obj_int_get_checked(args[ARG_report_id].u_obj);
+    }
+    const uint8_t report_id = common_hal_usb_hid_device_validate_report_id(self, report_id_arg);
+
+    common_hal_usb_hid_device_store_report(self, ((uint8_t *)bufinfo.buf), bufinfo.len, report_id);
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_KW(usb_hid_device_store_report_obj, 1, usb_hid_device_store_report);
+
 //|     def get_last_received_report(self, report_id: Optional[int] = None) -> Optional[bytes]:
 //|         """Get the last received HID OUT or feature report for the given report ID.
 //|         The report ID may be omitted if there is no report ID, or only one report ID.
@@ -254,6 +288,7 @@ MP_PROPERTY_GETTER(usb_hid_device_usage_obj,
 
 STATIC const mp_rom_map_elem_t usb_hid_device_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_send_report),              MP_ROM_PTR(&usb_hid_device_send_report_obj) },
+    { MP_ROM_QSTR(MP_QSTR_store_report),             MP_ROM_PTR(&usb_hid_device_store_report_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_last_received_report), MP_ROM_PTR(&usb_hid_device_get_last_received_report_obj) },
     { MP_ROM_QSTR(MP_QSTR_usage_page),               MP_ROM_PTR(&usb_hid_device_usage_page_obj) },
     { MP_ROM_QSTR(MP_QSTR_usage),                    MP_ROM_PTR(&usb_hid_device_usage_obj) },

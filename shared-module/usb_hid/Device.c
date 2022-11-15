@@ -239,6 +239,16 @@ void common_hal_usb_hid_device_send_report(usb_hid_device_obj_t *self, uint8_t *
     }
 }
 
+void common_hal_usb_hid_device_store_report(usb_hid_device_obj_t *self, uint8_t *report, uint16_t len, uint8_t report_id) {
+    // report_id and len have already been validated for this device.
+    size_t id_idx = get_report_id_idx(self, report_id);
+
+    mp_arg_validate_length(len, self->in_report_lengths[id_idx], MP_QSTR_report);
+
+    memcpy(self->in_report_buffers[id_idx], report, len);
+}
+
+
 mp_obj_t common_hal_usb_hid_device_get_last_received_report(usb_hid_device_obj_t *self, uint8_t report_id) {
     // report_id has already been validated for this device.
     size_t id_idx = get_report_id_idx(self, report_id);
@@ -283,7 +293,14 @@ uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t
     if (usb_hid_get_device_with_report_id(report_id, &hid_device, &id_idx)) {
         // Make sure buffer exists before trying to copy into it.
         if (hid_device->in_report_buffers[id_idx]) {
-            memcpy(buffer, hid_device->in_report_buffers[id_idx], reqlen);
+            if (hid_device->out_report_lengths[id_idx] == reqlen && hid_device->in_report_lengths[id_idx] >= 4*(reqlen-1) ) {
+                // Microsoft paging for certification report
+                uint8_t page = hid_device->out_report_buffers[id_idx][0];
+                buffer[0] = page;
+                memcpy(buffer+1, hid_device->in_report_buffers[id_idx]+32*page, 32);
+            } else {
+                memcpy(buffer, hid_device->in_report_buffers[id_idx], reqlen);
+            }
             return reqlen;
         }
     }
