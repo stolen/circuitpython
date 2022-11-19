@@ -220,9 +220,11 @@ uint16_t common_hal_usb_hid_device_get_usage(usb_hid_device_obj_t *self) {
 
 void common_hal_usb_hid_device_send_report(usb_hid_device_obj_t *self, uint8_t *report, uint16_t len, uint8_t report_id) {
     // report_id and len have already been validated for this device.
-    size_t id_idx = get_report_id_idx(self, report_id);
+    //size_t id_idx = get_report_id_idx(self, report_id);
 
-    mp_arg_validate_length(len, self->in_report_lengths[id_idx], MP_QSTR_report);
+    //mp_arg_validate_length(
+    //mp_arg_validate_length_max(
+    //    len, self->in_report_lengths[id_idx], MP_QSTR_report);
 
     // Wait until interface is ready, timeout = 2 seconds
     uint64_t end_ticks = supervisor_ticks_ms64() + 2000;
@@ -298,10 +300,28 @@ uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t
                 uint8_t page = hid_device->out_report_buffers[id_idx][0];
                 buffer[0] = page;
                 memcpy(buffer+1, hid_device->in_report_buffers[id_idx]+32*page, 32);
+                return 1 + 32;
             } else {
-                memcpy(buffer, hid_device->in_report_buffers[id_idx], reqlen);
+                memcpy(buffer, hid_device->in_report_buffers[id_idx], hid_device->in_report_lengths[id_idx]);
+                return hid_device->in_report_lengths[id_idx];
             }
-            return reqlen;
+        } else if (report_id == 1) {
+            // Apple magic trackpad set_report/get_report hack.
+            // Host sets desired feature number in get_report and then reads that feature by get_report(1)
+            if (hid_device->out_report_lengths[id_idx] == 1) {
+                uint8_t feature = hid_device->out_report_buffers[id_idx][0];
+                buffer[0] = feature; buffer[1] = 0; buffer[3] = 0;
+                switch (feature) {
+                    case 0xDB: buffer[2] = 0x49; return 4;
+                    case 0xD1: buffer[2] = 0x01; return 4;
+                    case 0xD3: buffer[2] = 0x0C; return 4;
+                    case 0xD0: buffer[2] = 0x0F; return 4;
+                    case 0xA1: buffer[2] = 0x06; return 4;
+                    case 0x7F: buffer[2] = 0x04; return 4;
+                    case 0xC8: buffer[2] = 0x01; return 4;
+                }
+                return 0;
+            }
         }
     }
     return 0;
