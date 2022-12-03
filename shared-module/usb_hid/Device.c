@@ -72,7 +72,7 @@ static const uint8_t keyboard_report_descriptor[] = {
     0xC0,              // End Collection
 };
 
-const usb_hid_device_obj_t usb_hid_device_keyboard_obj = {
+usb_hid_device_obj_t usb_hid_device_keyboard_obj = {
     .base = {
         .type = &usb_hid_device_type,
     },
@@ -84,6 +84,7 @@ const usb_hid_device_obj_t usb_hid_device_keyboard_obj = {
     .report_ids = { 0x01, },
     .in_report_lengths = { 8, },
     .out_report_lengths = { 1, },
+    .flags = 0,
 };
 
 static const uint8_t mouse_report_descriptor[] = {
@@ -122,7 +123,7 @@ static const uint8_t mouse_report_descriptor[] = {
     0xC0,              // End Collection
 };
 
-const usb_hid_device_obj_t usb_hid_device_mouse_obj = {
+usb_hid_device_obj_t usb_hid_device_mouse_obj = {
     .base = {
         .type = &usb_hid_device_type,
     },
@@ -134,6 +135,7 @@ const usb_hid_device_obj_t usb_hid_device_mouse_obj = {
     .report_ids = { 0x02, },
     .in_report_lengths = { 4, },
     .out_report_lengths = { 0, },
+    .flags = 0,
 };
 
 static const uint8_t consumer_control_report_descriptor[] = {
@@ -163,6 +165,7 @@ const usb_hid_device_obj_t usb_hid_device_consumer_control_obj = {
     .report_ids = { 0x03 },
     .in_report_lengths = { 2, },
     .out_report_lengths = { 0, },
+    .flags = 0,
 };
 
 STATIC size_t get_report_id_idx(usb_hid_device_obj_t *self, size_t report_id) {
@@ -187,7 +190,7 @@ uint8_t common_hal_usb_hid_device_validate_report_id(usb_hid_device_obj_t *self,
     return (uint8_t)report_id_arg;
 }
 
-void common_hal_usb_hid_device_construct(usb_hid_device_obj_t *self, mp_obj_t report_descriptor, uint16_t usage_page, uint16_t usage, size_t num_report_ids, uint8_t *report_ids, uint8_t *in_report_lengths, uint8_t *out_report_lengths) {
+void common_hal_usb_hid_device_construct(usb_hid_device_obj_t *self, mp_obj_t report_descriptor, uint16_t usage_page, uint16_t usage, size_t num_report_ids, uint8_t *report_ids, uint8_t *in_report_lengths, uint8_t *out_report_lengths, uint8_t flags) {
     mp_arg_validate_length_max(
         num_report_ids, CIRCUITPY_USB_HID_MAX_REPORT_IDS_PER_DESCRIPTOR, MP_QSTR_report_ids);
 
@@ -208,6 +211,7 @@ void common_hal_usb_hid_device_construct(usb_hid_device_obj_t *self, mp_obj_t re
     memcpy(self->report_ids, report_ids, num_report_ids);
     memcpy(self->in_report_lengths, in_report_lengths, num_report_ids);
     memcpy(self->out_report_lengths, out_report_lengths, num_report_ids);
+    self->flags = flags;
 }
 
 uint16_t common_hal_usb_hid_device_get_usage_page(usb_hid_device_obj_t *self) {
@@ -216,6 +220,14 @@ uint16_t common_hal_usb_hid_device_get_usage_page(usb_hid_device_obj_t *self) {
 
 uint16_t common_hal_usb_hid_device_get_usage(usb_hid_device_obj_t *self) {
     return self->usage;
+}
+
+uint16_t common_hal_usb_hid_device_get_flags(usb_hid_device_obj_t *self) {
+    return self->flags;
+}
+
+void common_hal_usb_hid_device_set_flags(usb_hid_device_obj_t *self, uint8_t flags) {
+    self->flags = flags;
 }
 
 void common_hal_usb_hid_device_send_report(usb_hid_device_obj_t *self, uint8_t *report, uint8_t len, uint8_t report_id) {

@@ -40,7 +40,8 @@
 //|         usage: int,
 //|         report_ids: Sequence[int],
 //|         in_report_lengths: Sequence[int],
-//|         out_report_lengths: Sequence[int]
+//|         out_report_lengths: Sequence[int],
+//|         flags: Optional[int] = 0x00
 //|     ) -> None:
 //|         """Create a description of a USB HID device. The actual device is created when you
 //|         pass a `Device` to `usb_hid.enable()`.
@@ -59,6 +60,10 @@
 //|           The sizes are in order of the ``report_ids``.
 //|           Use a size of ``0`` for a report that is not an OUT report.
 //|           "OUT" is with respect to the host.
+//|         :param int flags: Fine tune the device behaviour.
+//|           Supported flags:
+//|             - ``BOOT``: this device supports boot protocol (valid only for mice and keyboards)
+//|             - ``STANDALONE``: this device has its own EP pair and is not a part of the composite device.
 //|
 //|         ``report_ids``, ``in_report_lengths``, and ``out_report_lengths`` must all have the
 //|         same number of elements.
@@ -93,7 +98,7 @@
 STATIC mp_obj_t usb_hid_device_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     usb_hid_device_obj_t *self = m_new_obj(usb_hid_device_obj_t);
     self->base.type = &usb_hid_device_type;
-    enum { ARG_report_descriptor, ARG_usage_page, ARG_usage, ARG_report_ids, ARG_in_report_lengths, ARG_out_report_lengths };
+    enum { ARG_report_descriptor, ARG_usage_page, ARG_usage, ARG_report_ids, ARG_in_report_lengths, ARG_out_report_lengths, ARG_flags };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_report_descriptor, MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_OBJ },
         { MP_QSTR_usage_page, MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_INT },
@@ -101,6 +106,7 @@ STATIC mp_obj_t usb_hid_device_make_new(const mp_obj_type_t *type, size_t n_args
         { MP_QSTR_report_ids, MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_OBJ },
         { MP_QSTR_in_report_lengths, MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_OBJ },
         { MP_QSTR_out_report_lengths, MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_OBJ },
+        { MP_QSTR_flags, MP_ARG_INT, {.u_int = 0} },
     };
 
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
@@ -158,8 +164,12 @@ STATIC mp_obj_t usb_hid_device_make_new(const mp_obj_type_t *type, size_t n_args
         mp_raise_ValueError_varg(translate("%q length must be %d"), MP_QSTR_report_id_space_0, 1);
     }
 
+    const mp_int_t flags_arg = args[ARG_flags].u_int;
+    mp_arg_validate_int_range(flags_arg, 0, 0xFF, MP_QSTR_flags);
+    const uint8_t flags = flags_arg;
+
     common_hal_usb_hid_device_construct(
-        self, descriptor, usage_page, usage, report_ids_count, report_ids_array, in_report_lengths_array, out_report_lengths_array);
+        self, descriptor, usage_page, usage, report_ids_count, report_ids_array, in_report_lengths_array, out_report_lengths_array, flags);
     return (mp_obj_t)self;
 }
 
@@ -252,15 +262,43 @@ MP_DEFINE_CONST_FUN_OBJ_1(usb_hid_device_get_usage_obj,
 MP_PROPERTY_GETTER(usb_hid_device_usage_obj,
     (mp_obj_t)&usb_hid_device_get_usage_obj);
 
+//|     flags: int
+//|     """The device flags.
+//|
+//|     currently defined flags are BOOT (0x01) and STANDALONE(0x02)
+//|
+STATIC mp_obj_t usb_hid_device_obj_get_flags(mp_obj_t self_in) {
+    usb_hid_device_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    return MP_OBJ_NEW_SMALL_INT(common_hal_usb_hid_device_get_flags(self));
+}
+MP_DEFINE_CONST_FUN_OBJ_1(usb_hid_device_get_flags_obj,
+    usb_hid_device_obj_get_flags);
+
+STATIC mp_obj_t usb_hid_device_obj_set_flags(mp_obj_t self_in, mp_obj_t flags_in) {
+    usb_hid_device_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    common_hal_usb_hid_device_set_flags(self, mp_obj_get_int(flags_in));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(usb_hid_device_set_flags_obj,
+    usb_hid_device_obj_set_flags);
+
+MP_PROPERTY_GETSET(usb_hid_device_flags_obj,
+    (mp_obj_t)&usb_hid_device_get_flags_obj,
+    (mp_obj_t)&usb_hid_device_set_flags_obj);
+
 STATIC const mp_rom_map_elem_t usb_hid_device_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_send_report),              MP_ROM_PTR(&usb_hid_device_send_report_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_last_received_report), MP_ROM_PTR(&usb_hid_device_get_last_received_report_obj) },
     { MP_ROM_QSTR(MP_QSTR_usage_page),               MP_ROM_PTR(&usb_hid_device_usage_page_obj) },
     { MP_ROM_QSTR(MP_QSTR_usage),                    MP_ROM_PTR(&usb_hid_device_usage_obj) },
+    { MP_ROM_QSTR(MP_QSTR_flags),                    MP_ROM_PTR(&usb_hid_device_flags_obj) },
 
     { MP_ROM_QSTR(MP_QSTR_KEYBOARD),                 MP_ROM_PTR(&usb_hid_device_keyboard_obj) },
     { MP_ROM_QSTR(MP_QSTR_MOUSE),                    MP_ROM_PTR(&usb_hid_device_mouse_obj) },
     { MP_ROM_QSTR(MP_QSTR_CONSUMER_CONTROL),         MP_ROM_PTR(&usb_hid_device_consumer_control_obj) },
+
+    { MP_ROM_QSTR(MP_QSTR_BOOT),                     MP_OBJ_NEW_SMALL_INT(USB_HID_DEVICE_FLAG_BOOT) },
+    { MP_ROM_QSTR(MP_QSTR_STANDALONE),               MP_OBJ_NEW_SMALL_INT(USB_HID_DEVICE_FLAG_STANDALONE) },
 };
 
 STATIC MP_DEFINE_CONST_DICT(usb_hid_device_locals_dict, usb_hid_device_locals_dict_table);

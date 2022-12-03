@@ -36,8 +36,8 @@ bool usb_hid_enabled(void);
 uint8_t usb_hid_boot_device(void);
 void usb_hid_set_defaults(void);
 
-size_t usb_hid_add_descriptor(uint8_t *descriptor_buf, descriptor_counts_t *descriptor_counts, uint8_t *current_interface_string, uint16_t report_descriptor_length, uint8_t boot_device);
-size_t usb_hid_descriptor_length(void);
+size_t usb_hid_add_all_descriptors(uint8_t *descriptor_buf, descriptor_counts_t *descriptor_counts, uint8_t *current_interface_string, uint16_t report_descriptor_length, uint8_t boot_device);
+size_t usb_hid_all_descriptors_length(void);
 size_t usb_hid_report_descriptor_length(void);
 
 void usb_hid_setup_devices(void);

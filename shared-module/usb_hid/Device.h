@@ -31,6 +31,7 @@
 #include <stdbool.h>
 
 #include "py/obj.h"
+#include "py/objint.h"
 
 typedef struct  {
     mp_obj_base_t base;
@@ -46,11 +47,16 @@ typedef struct  {
     uint16_t usage_page;
     uint16_t usage;
     uint8_t num_report_ids;
+    uint8_t flags;
 } usb_hid_device_obj_t;
 
-extern const usb_hid_device_obj_t usb_hid_device_keyboard_obj;
-extern const usb_hid_device_obj_t usb_hid_device_mouse_obj;
+extern usb_hid_device_obj_t usb_hid_device_keyboard_obj;
+extern usb_hid_device_obj_t usb_hid_device_mouse_obj;
 extern const usb_hid_device_obj_t usb_hid_device_consumer_control_obj;
+
+#define USB_HID_DEVICE_FLAG_BOOT        (0x80)
+#define USB_HID_DEVICE_FLAG_STANDALONE  (0x40)
+#define USB_HID_DEVICE_ITF_MASK         (0x1F)    // for storing interface number in flags to save some RAM
 
 void usb_hid_device_create_report_buffers(usb_hid_device_obj_t *self);
 

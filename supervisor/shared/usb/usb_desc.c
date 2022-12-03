@@ -157,7 +157,7 @@ static void usb_build_configuration_descriptor(void) {
 
     #if CIRCUITPY_USB_HID
     if (usb_hid_enabled()) {
-        total_descriptor_length += usb_hid_descriptor_length();
+        total_descriptor_length += usb_hid_all_descriptors_length();
     }
     #endif
 
@@ -230,7 +230,7 @@ static void usb_build_configuration_descriptor(void) {
             // and will not work properly otherwise.
             reset_into_safe_mode(USB_BOOT_DEVICE_NOT_INTERFACE_ZERO);
         }
-        descriptor_buf_remaining += usb_hid_add_descriptor(
+        descriptor_buf_remaining += usb_hid_add_all_descriptors(
             descriptor_buf_remaining, &descriptor_counts, &current_interface_string,
             usb_hid_report_descriptor_length(), usb_hid_boot_device());
     }

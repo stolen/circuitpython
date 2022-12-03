@@ -123,6 +123,7 @@ static const usb_hid_device_obj_t boot_keyboard_obj = {
     .report_ids = { 0, },
     .in_report_lengths = { 8, },
     .out_report_lengths = { 1, },
+    .flags = USB_HID_DEVICE_FLAG_BOOT,
 };
 
 static const usb_hid_device_obj_t boot_mouse_obj = {
@@ -137,6 +138,7 @@ static const usb_hid_device_obj_t boot_mouse_obj = {
     .report_ids = { 0, },
     .in_report_lengths = { 4, },
     .out_report_lengths = { 0, },
+    .flags = USB_HID_DEVICE_FLAG_BOOT,
 };
 
 bool usb_hid_enabled(void) {
@@ -160,14 +162,88 @@ void usb_hid_set_defaults(void) {
 }
 
 // This is the interface descriptor, not the report descriptor.
-size_t usb_hid_descriptor_length(void) {
-    return sizeof(usb_hid_descriptor_template);
+size_t usb_hid_all_descriptors_length(void) {
+    size_t total_size = 0;
+    for (mp_int_t i = 0; i < num_hid_devices; i++) {
+        // standalones go first, and then go all composite parts
+        if ((hid_devices[i].flags & USB_HID_DEVICE_FLAG_STANDALONE) == 0) {
+            // first (and only) composite
+            total_size += sizeof(usb_hid_descriptor_template);
+            return total_size;
+        } else {
+            // one more standalone
+            total_size += sizeof(usb_hid_descriptor_template);
+        }
+    }
+    return total_size;
 }
 
 static const char usb_hid_interface_name[] = USB_INTERFACE_NAME " HID";
 
+size_t usb_hid_add_standalone_device_descriptor(uint8_t *descriptor_buf, descriptor_counts_t *descriptor_counts, uint8_t *current_interface_string, usb_hid_device_obj_t *device);
+size_t usb_hid_add_composite_device_descriptor(uint8_t *descriptor_buf, descriptor_counts_t *descriptor_counts, uint8_t *current_interface_string, uint16_t report_descriptor_length, uint8_t boot_device);
+
 // This is the interface descriptor, not the report descriptor.
-size_t usb_hid_add_descriptor(uint8_t *descriptor_buf, descriptor_counts_t *descriptor_counts, uint8_t *current_interface_string, uint16_t report_descriptor_length, uint8_t boot_device) {
+size_t usb_hid_add_all_descriptors(uint8_t *descriptor_buf, descriptor_counts_t *descriptor_counts, uint8_t *current_interface_string, uint16_t report_descriptor_length, uint8_t boot_device) {
+    size_t overall_size = 0;
+    uint16_t composite_report_descriptor_length = 0;
+
+    usb_add_interface_string(*current_interface_string, usb_hid_interface_name);
+
+    // After common_hal_usb_hid_enable, standalone devices should go first,
+    // and then go all parts of the composite device
+
+    // First, add all standalone devices, collecting composite report_descriptor_length
+    for (mp_int_t i = 0; i < num_hid_devices; i++) {
+        // all current_interface increments in this loop happen on standalone devices
+        // which go first, and then all composite parts get their current_interface properly
+        if ((hid_devices[i].flags & USB_HID_DEVICE_FLAG_STANDALONE) == 0) {
+            composite_report_descriptor_length += hid_devices[i].report_descriptor_length;
+        } else {
+            overall_size += usb_hid_add_standalone_device_descriptor(
+                descriptor_buf+overall_size, descriptor_counts, current_interface_string,
+                &hid_devices[i]);
+        }
+    }
+
+    // Finally, add the composite device descriptor (if there are any parts of it)
+    if (composite_report_descriptor_length > 0) {
+        overall_size += usb_hid_add_composite_device_descriptor(
+            descriptor_buf+overall_size, descriptor_counts, current_interface_string,
+            composite_report_descriptor_length, boot_device);
+    }
+
+    (*current_interface_string)++;
+
+    return overall_size;
+}
+
+size_t usb_hid_add_standalone_device_descriptor(uint8_t *descriptor_buf, descriptor_counts_t *descriptor_counts, uint8_t *current_interface_string, usb_hid_device_obj_t *device) {
+    memcpy(descriptor_buf, usb_hid_descriptor_template, sizeof(usb_hid_descriptor_template));
+
+    descriptor_buf[HID_DESCRIPTOR_INTERFACE_INDEX] = descriptor_counts->current_interface;
+    descriptor_counts->current_interface++;
+
+    if ((device->flags & USB_HID_DEVICE_FLAG_BOOT) > 0) {
+        descriptor_buf[HID_DESCRIPTOR_SUBCLASS_INDEX] = 1; // BOOT protocol (device) available.
+        descriptor_buf[HID_DESCRIPTOR_INTERFACE_PROTOCOL_INDEX] = device->report_ids[0]; // Quick hack. Compatible and flexible.
+    }
+
+    descriptor_buf[HID_DESCRIPTOR_INTERFACE_STRING_INDEX] = *current_interface_string;
+
+    descriptor_buf[HID_DESCRIPTOR_LENGTH_INDEX] = device->report_descriptor_length & 0xFF;
+    descriptor_buf[HID_DESCRIPTOR_LENGTH_INDEX + 1] = (device->report_descriptor_length >> 8);
+
+    descriptor_buf[HID_IN_ENDPOINT_INDEX] = 0x80 | descriptor_counts->current_endpoint;
+    descriptor_counts->num_in_endpoints++;
+    descriptor_buf[HID_OUT_ENDPOINT_INDEX] = descriptor_counts->current_endpoint;
+    descriptor_counts->num_out_endpoints++;
+    descriptor_counts->current_endpoint++;
+
+    return sizeof(usb_hid_descriptor_template);
+}
+
+size_t usb_hid_add_composite_device_descriptor(uint8_t *descriptor_buf, descriptor_counts_t *descriptor_counts, uint8_t *current_interface_string, uint16_t report_descriptor_length, uint8_t boot_device) {
     memcpy(descriptor_buf, usb_hid_descriptor_template, sizeof(usb_hid_descriptor_template));
 
     descriptor_buf[HID_DESCRIPTOR_INTERFACE_INDEX] = descriptor_counts->current_interface;
@@ -178,9 +254,7 @@ size_t usb_hid_add_descriptor(uint8_t *descriptor_buf, descriptor_counts_t *desc
         descriptor_buf[HID_DESCRIPTOR_INTERFACE_PROTOCOL_INDEX] = boot_device; // 1: keyboard, 2: mouse
     }
 
-    usb_add_interface_string(*current_interface_string, usb_hid_interface_name);
     descriptor_buf[HID_DESCRIPTOR_INTERFACE_STRING_INDEX] = *current_interface_string;
-    (*current_interface_string)++;
 
     descriptor_buf[HID_DESCRIPTOR_LENGTH_INDEX] = report_descriptor_length & 0xFF;
     descriptor_buf[HID_DESCRIPTOR_LENGTH_INDEX + 1] = (report_descriptor_length >> 8);
@@ -227,11 +301,27 @@ bool common_hal_usb_hid_enable(const mp_obj_t devices, uint8_t boot_device) {
     hid_boot_device = boot_device;
 
     // Remember the devices in static storage so they live across VMs.
+    // devices has already been validated to contain only usb_hid_device_obj_t objects.
+
+    // First, add standalone devices
+    mp_int_t devnum = 0;
     for (mp_int_t i = 0; i < num_hid_devices; i++) {
-        // devices has already been validated to contain only usb_hid_device_obj_t objects.
         usb_hid_device_obj_t *device =
             MP_OBJ_TO_PTR(mp_obj_subscr(devices, MP_OBJ_NEW_SMALL_INT(i), MP_OBJ_SENTINEL));
-        memcpy(&hid_devices[i], device, sizeof(usb_hid_device_obj_t));
+        if (device->flags & USB_HID_DEVICE_FLAG_STANDALONE) {
+            memcpy(&hid_devices[devnum], device, sizeof(usb_hid_device_obj_t));
+            devnum++;
+        }
+    }
+
+    // Then add parts of the composite device
+    for (mp_int_t i = 0; i < num_hid_devices; i++) {
+        usb_hid_device_obj_t *device =
+            MP_OBJ_TO_PTR(mp_obj_subscr(devices, MP_OBJ_NEW_SMALL_INT(i), MP_OBJ_SENTINEL));
+        if ((device->flags & USB_HID_DEVICE_FLAG_STANDALONE) == 0) {
+            memcpy(&hid_devices[devnum], device, sizeof(usb_hid_device_obj_t));
+            devnum++;
+        }
     }
 
     usb_hid_set_devices_from_hid_devices();
@@ -260,7 +350,7 @@ void usb_hid_setup_devices(void) {
     }
 }
 
-// Total length of the report descriptor, with all configured devices.
+// Total length of the concatenated report descriptors, with all configured devices.
 size_t usb_hid_report_descriptor_length(void) {
     size_t total_hid_report_descriptor_length = 0;
     for (mp_int_t i = 0; i < num_hid_devices; i++) {
@@ -345,8 +435,15 @@ bool usb_hid_get_device_with_report_id(uint8_t report_id, usb_hid_device_obj_t *
 // Callback invoked when we receive a GET HID REPORT DESCRIPTOR
 // Application returns pointer to descriptor
 // Descriptor contents must exist long enough for transfer to complete
-uint8_t const *tud_hid_descriptor_report_cb(uint8_t itf) {
-    return (uint8_t *)hid_report_descriptor_allocation->ptr;
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t hid_idx) {
+    uint8_t * report = (uint8_t *)hid_report_descriptor_allocation->ptr;
+
+    // Skip report descriptors for devices before requested one
+    for (uint8_t device_idx = 0; device_idx < hid_idx; device_idx++) {
+        report += hid_devices[device_idx].report_descriptor_length;
+    }
+
+    return report;
 }
 
 // Callback invoked when we receive a SET_PROTOCOL request.
