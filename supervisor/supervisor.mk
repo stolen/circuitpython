@@ -133,6 +133,24 @@ ifeq ($(CIRCUITPY_USB),1)
       shared-module/usb_hid/Device.c \
 
   endif
+  ifeq ($(CIRCUITPY_USB_HID), 2)
+    SRC_SUPERVISOR += \
+      lib/tinyusb/src/class/hid/hid_device.c \
+      shared-bindings/usb_hid/__init__.c \
+      shared-bindings/usb_hid/Device.c \
+      shared-module/usb_hid/__init__.c \
+      shared-module/usb_hid/Device.c \
+
+  endif
+  ifeq ($(CIRCUITPY_USB_HID), 3)
+    SRC_SUPERVISOR += \
+      lib/tinyusb/src/class/hid/hid_device.c \
+      shared-bindings/usb_hid/__init__.c \
+      shared-bindings/usb_hid/Device.c \
+      shared-module/usb_hid/__init__.c \
+      shared-module/usb_hid/Device.c \
+
+  endif
 
   ifeq ($(CIRCUITPY_USB_MIDI), 1)
     SRC_SUPERVISOR += \
