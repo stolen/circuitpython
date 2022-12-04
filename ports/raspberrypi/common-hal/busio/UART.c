@@ -184,6 +184,12 @@ void common_hal_busio_uart_construct(busio_uart_obj_t *self,
     uart_set_irq_enables(self->uart, true /* rx has data */, false /* tx needs data */);
 }
 
+void common_hal_busio_uart_never_reset(busio_uart_obj_t *self) {
+    for (uint8_t num = 0; num < NUM_UARTS; num++) {
+        never_reset_uart(num);
+    }
+}
+
 bool common_hal_busio_uart_deinited(busio_uart_obj_t *self) {
     return self->tx_pin == NO_PIN && self->rx_pin == NO_PIN;
 }
