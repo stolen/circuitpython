@@ -238,15 +238,15 @@ void common_hal_usb_hid_device_send_report(usb_hid_device_obj_t *self, uint8_t *
 
     // Wait until interface is ready, timeout = 2 seconds
     uint64_t end_ticks = supervisor_ticks_ms64() + 2000;
-    while ((supervisor_ticks_ms64() < end_ticks) && !tud_hid_ready()) {
+    while ((supervisor_ticks_ms64() < end_ticks) && !tud_hid_n_ready(self->hid_idx)) {
         RUN_BACKGROUND_TASKS;
     }
 
-    if (!tud_hid_ready()) {
+    if (!tud_hid_n_ready(self->hid_idx)) {
         mp_raise_msg(&mp_type_OSError, translate("USB busy"));
     }
 
-    if (!tud_hid_report(report_id, report, len)) {
+    if (!tud_hid_n_report(self->hid_idx, report_id, report, len)) {
         mp_raise_msg(&mp_type_OSError, translate("USB error"));
     }
 }
@@ -264,7 +264,7 @@ mp_obj_t common_hal_usb_hid_device_get_last_received_report(usb_hid_device_obj_t
 void usb_hid_device_create_report_buffers(usb_hid_device_obj_t *self) {
     for (size_t i = 0; i < self->num_report_ids; i++) {
         // The IN buffers are used only for tud_hid_get_report_cb(),
-        // which is an unusual case. Normally we can just pass the data directly with tud_hid_report().
+        // which is an unusual case. Normally we can just pass the data directly with tud_hid_n_report().
         self->in_report_buffers[i] =
             self->in_report_lengths[i] > 0
             ? gc_alloc(self->in_report_lengths[i], false, true /*long-lived*/)
@@ -280,8 +280,7 @@ void usb_hid_device_create_report_buffers(usb_hid_device_obj_t *self) {
 
 
 // Callback invoked when we receive Get_Report request through control endpoint
-uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t *buffer, uint16_t reqlen) {
-    (void)itf;
+uint16_t tud_hid_get_report_cb(uint8_t hid_dev_idx, uint8_t report_id, hid_report_type_t report_type, uint8_t *buffer, uint16_t reqlen) {
     // Support Input Report and Feature Report
     if (report_type != HID_REPORT_TYPE_INPUT && report_type != HID_REPORT_TYPE_FEATURE) {
         return 0;
@@ -292,7 +291,7 @@ uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t
     usb_hid_device_obj_t *hid_device;
     size_t id_idx;
     // Find device with this report id, and get the report id index.
-    if (usb_hid_get_device_with_report_id(report_id, &hid_device, &id_idx)) {
+    if (usb_hid_get_device_with_report_id(hid_dev_idx, report_id, &hid_device, &id_idx)) {
         // Make sure buffer exists before trying to copy into it.
         if (hid_device->in_report_buffers[id_idx]) {
             memcpy(buffer, hid_device->in_report_buffers[id_idx], reqlen);
@@ -303,8 +302,7 @@ uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t
 }
 
 // Callback invoked when we receive Set_Report request through control endpoint
-void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t const *buffer, uint16_t bufsize) {
-    (void)itf;
+void tud_hid_set_report_cb(uint8_t hid_dev_idx, uint8_t report_id, hid_report_type_t report_type, uint8_t const *buffer, uint16_t bufsize) {
     if (report_type == HID_REPORT_TYPE_INVALID) {
         report_id = buffer[0];
         buffer++;
@@ -316,7 +314,7 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
     usb_hid_device_obj_t *hid_device;
     size_t id_idx;
     // Find device with this report id, and get the report id index.
-    if (usb_hid_get_device_with_report_id(report_id, &hid_device, &id_idx)) {
+    if (usb_hid_get_device_with_report_id(hid_dev_idx, report_id, &hid_device, &id_idx)) {
         // If a report of the correct size has been read, save it in the proper OUT report buffer.
         if (hid_device &&
             hid_device->out_report_buffers[id_idx] &&

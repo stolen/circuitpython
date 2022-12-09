@@ -89,9 +89,6 @@ static mp_int_t num_hid_devices;
 // The value is remembered here from boot.py to code.py.
 static uint8_t hid_boot_device;
 
-// Whether a boot device was requested by a SET_PROTOCOL request from the host.
-static bool hid_boot_device_requested;
-
 // This tuple is store in usb_hid.devices.
 static mp_obj_tuple_t *hid_devices_tuple;
 
@@ -149,14 +146,21 @@ uint8_t usb_hid_boot_device(void) {
     return hid_boot_device;
 }
 
-// Returns 1 or 2 if host requested a boot device and boot protocol was enabled in the interface descriptor.
+// Returns boot protocol (1 or 2) if it was enabled in the composite interface descriptor and the host requested it
 uint8_t common_hal_usb_hid_get_boot_device(void) {
-    return hid_boot_device_requested ? hid_boot_device : 0;
+    for (mp_int_t i = 0; i < num_hid_devices; i++) {
+        if (hid_devices[i].flags & USB_HID_DEVICE_FLAG_STANDALONE) {
+            // standalones go first, and then go all composite parts
+            continue;
+        } else {
+            return (hid_devices[i].flags & USB_HID_DEVICE_FLAG_BOOT_REQUESTED) ? hid_boot_device : 0;
+        }
+    }
+    return 0;
 }
 
 void usb_hid_set_defaults(void) {
     hid_boot_device = 0;
-    hid_boot_device_requested = false;
     common_hal_usb_hid_enable(
         CIRCUITPY_USB_HID_ENABLED_DEFAULT ? &default_hid_devices_tuple : mp_const_empty_tuple, 0);
 }
@@ -297,6 +301,7 @@ bool common_hal_usb_hid_enable(const mp_obj_t devices, uint8_t boot_device) {
     mp_arg_validate_length_max(num_devices, MAX_HID_DEVICES, MP_QSTR_devices);
 
     num_hid_devices = num_devices;
+    usb_hid_device_obj_t *device;
 
     hid_boot_device = boot_device;
 
@@ -304,21 +309,22 @@ bool common_hal_usb_hid_enable(const mp_obj_t devices, uint8_t boot_device) {
     // devices has already been validated to contain only usb_hid_device_obj_t objects.
 
     // First, add standalone devices
-    mp_int_t devnum = 0;
+    mp_int_t devnum = 0, comp_idx;
     for (mp_int_t i = 0; i < num_hid_devices; i++) {
-        usb_hid_device_obj_t *device =
-            MP_OBJ_TO_PTR(mp_obj_subscr(devices, MP_OBJ_NEW_SMALL_INT(i), MP_OBJ_SENTINEL));
+        device = MP_OBJ_TO_PTR(mp_obj_subscr(devices, MP_OBJ_NEW_SMALL_INT(i), MP_OBJ_SENTINEL));
         if (device->flags & USB_HID_DEVICE_FLAG_STANDALONE) {
+            device->hid_idx = devnum;
             memcpy(&hid_devices[devnum], device, sizeof(usb_hid_device_obj_t));
             devnum++;
         }
     }
 
+    comp_idx = devnum;
     // Then add parts of the composite device
     for (mp_int_t i = 0; i < num_hid_devices; i++) {
-        usb_hid_device_obj_t *device =
-            MP_OBJ_TO_PTR(mp_obj_subscr(devices, MP_OBJ_NEW_SMALL_INT(i), MP_OBJ_SENTINEL));
+        device = MP_OBJ_TO_PTR(mp_obj_subscr(devices, MP_OBJ_NEW_SMALL_INT(i), MP_OBJ_SENTINEL));
         if ((device->flags & USB_HID_DEVICE_FLAG_STANDALONE) == 0) {
+            device->hid_idx = comp_idx;
             memcpy(&hid_devices[devnum], device, sizeof(usb_hid_device_obj_t));
             devnum++;
         }
@@ -331,15 +337,36 @@ bool common_hal_usb_hid_enable(const mp_obj_t devices, uint8_t boot_device) {
 
 // Called when HID devices are ready to be used, when code.py or the REPL starts running.
 void usb_hid_setup_devices(void) {
+    usb_hid_device_obj_t *device;
 
-    // If the host requested a boot device, replace the current list of devices
+    // If the host requested a boot device on some interface, replace the current
+    // standalone device or list of composite device components
     // with a single-element tuple containing the proper boot device.
-    if (hid_boot_device_requested) {
-        memcpy(&hid_devices[0],
+    for (mp_int_t i = 0; i < num_hid_devices; i++) {
+        device = &hid_devices[i];
+
+        // Skip non-boot devices
+        if ((hid_devices[i].flags & USB_HID_DEVICE_FLAG_BOOT_REQUESTED) == 0) continue;
+        // standalone devices are needed intact to seek for report descriptors
+        if (hid_devices[i].flags & USB_HID_DEVICE_FLAG_STANDALONE) continue;
+
+        uint8_t boot_device_id = 0;
+        if ((device->flags & USB_HID_DEVICE_FLAG_STANDALONE) > 0) {
+            boot_device_id = device->report_ids[0];
+        } else {
+            boot_device_id = hid_boot_device;
+        }
+
+        memcpy(device,
             // Will be 1 (keyboard) or 2 (mouse).
-            hid_boot_device == 1 ? &boot_keyboard_obj : &boot_mouse_obj,
+            boot_device_id == 1 ? &boot_keyboard_obj : &boot_mouse_obj,
             sizeof(usb_hid_device_obj_t));
-        num_hid_devices = 1;
+
+        // If composite device is a boot device, leave only first component and mask others
+        if ((device->flags & USB_HID_DEVICE_FLAG_STANDALONE) == 0) {
+            num_hid_devices = i + 1;
+            break;
+        }
     }
 
     usb_hid_set_devices_from_hid_devices();
@@ -418,9 +445,17 @@ void usb_hid_gc_collect(void) {
     }
 }
 
-bool usb_hid_get_device_with_report_id(uint8_t report_id, usb_hid_device_obj_t **device_out, size_t *id_idx_out) {
-    for (uint8_t device_idx = 0; device_idx < num_hid_devices; device_idx++) {
-        usb_hid_device_obj_t *device = &hid_devices[device_idx];
+bool usb_hid_get_device_with_report_id(uint8_t hid_dev_idx, uint8_t report_id, usb_hid_device_obj_t **device_out, size_t *id_idx_out) {
+    usb_hid_device_obj_t *device = &hid_devices[hid_dev_idx];
+    if (device->flags & USB_HID_DEVICE_FLAG_STANDALONE) {
+        // This is standalone device, no need to search for component
+        *device_out = device;
+        *id_idx_out = hid_dev_idx;
+        return true;
+    }
+    // Look up for composite coponent with given report_id
+    for (uint8_t device_idx = hid_dev_idx; device_idx < num_hid_devices; device_idx++) {
+        device = &hid_devices[device_idx];
         for (size_t id_idx = 0; id_idx < device->num_report_ids; id_idx++) {
             if (device->report_ids[id_idx] == report_id) {
                 *device_out = device;
@@ -435,11 +470,11 @@ bool usb_hid_get_device_with_report_id(uint8_t report_id, usb_hid_device_obj_t *
 // Callback invoked when we receive a GET HID REPORT DESCRIPTOR
 // Application returns pointer to descriptor
 // Descriptor contents must exist long enough for transfer to complete
-uint8_t const *tud_hid_descriptor_report_cb(uint8_t hid_idx) {
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t hid_dev_idx) {
     uint8_t * report = (uint8_t *)hid_report_descriptor_allocation->ptr;
 
     // Skip report descriptors for devices before requested one
-    for (uint8_t device_idx = 0; device_idx < hid_idx; device_idx++) {
+    for (uint8_t device_idx = 0; device_idx < hid_dev_idx; device_idx++) {
         report += hid_devices[device_idx].report_descriptor_length;
     }
 
@@ -448,6 +483,8 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t hid_idx) {
 
 // Callback invoked when we receive a SET_PROTOCOL request.
 // Protocol is either HID_PROTOCOL_BOOT (0) or HID_PROTOCOL_REPORT (1)
-void tud_hid_set_protocol_cb(uint8_t instance, uint8_t protocol) {
-    hid_boot_device_requested = (protocol == HID_PROTOCOL_BOOT);
+void tud_hid_set_protocol_cb(uint8_t hid_dev_idx, uint8_t protocol) {
+    if (protocol == HID_PROTOCOL_BOOT) {
+        hid_devices[hid_dev_idx].flags |= USB_HID_DEVICE_FLAG_BOOT_REQUESTED;
+    }
 }

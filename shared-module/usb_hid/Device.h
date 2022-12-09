@@ -47,16 +47,17 @@ typedef struct  {
     uint16_t usage_page;
     uint16_t usage;
     uint8_t num_report_ids;
-    uint8_t flags;
+    uint8_t flags:4;    // currently there are only 3 flags, so 4 bits should be enough for now
+    uint8_t hid_idx:4;  // MAX_HID_DEVICES=8, so 4 bits are enough even if someone wants to double max count
 } usb_hid_device_obj_t;
 
 extern usb_hid_device_obj_t usb_hid_device_keyboard_obj;
 extern usb_hid_device_obj_t usb_hid_device_mouse_obj;
 extern const usb_hid_device_obj_t usb_hid_device_consumer_control_obj;
 
-#define USB_HID_DEVICE_FLAG_BOOT        (0x80)
-#define USB_HID_DEVICE_FLAG_STANDALONE  (0x40)
-#define USB_HID_DEVICE_ITF_MASK         (0x1F)    // for storing interface number in flags to save some RAM
+#define USB_HID_DEVICE_FLAG_BOOT            (0x1)
+#define USB_HID_DEVICE_FLAG_BOOT_REQUESTED  (0x2)
+#define USB_HID_DEVICE_FLAG_STANDALONE      (0x4)
 
 void usb_hid_device_create_report_buffers(usb_hid_device_obj_t *self);
 
